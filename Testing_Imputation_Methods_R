@@ -1,0 +1,117 @@
+library(VIM)
+library(dplyr)
+library(mice)
+library(nortest)
+library(misty)
+library(naniar)
+library(car)
+
+mzt = function(n=1) {
+  c0 = runif(1)
+  v0 = runif(97)
+  st1 = 7654321/16777216
+  st2 = 16777213/16777216
+  '%op%' = function(x,y) return(x-y+(x<y))
+  op = function(x) return(x-7654321/16777216+(x<7654321/16777216)*16777213/16777216)
+  op = function(x) return(x-st1+(x<st1)*st2)
+  op1 = function(x,y) return(x-y+(x<y))
+  v = c(runif(97), rep(NA,n))
+  C = c(runif(1), rep(NA,n))
+  for (i in 1:n) {
+    v[i+97] = (v[i] %op% v[i+64])
+    C[i+1]=op(C[i])
+  }
+  v = v[-(1:97)]
+  C = C[-1]
+  U = v %op% C
+  return(U)
+}
+
+liczba_obserwacji = 500
+grupa1 = floor(runif(0.3*liczba_obserwacji,0,50))
+grupa2 = floor(runif(0.5*liczba_obserwacji,51,80))
+grupa3 = floor(runif(0.2*liczba_obserwacji,81,101))
+punkty = matrix(c(grupa1, grupa2, grupa3),nrow = liczba_obserwacji, ncol = 1)
+hist(punkty)
+punkty1 = punkty
+ocena <- recode(punkty1, "0:50 = '2'; 51:60 = '3'; 61:70 = '3+';71:80 = '4'; 81:90 = '4+'; else = 5")
+
+wynik = cbind(punkty, ocena)
+wynik = data.frame(wynik)
+colnames(wynik) = c('Punkty', 'Ocena')
+wynik$Punkty = as.numeric(wynik$Punkty)
+wynik$Ocena = as.factor(wynik$Ocena)
+summary(wynik)
+
+wynik1 = wynik
+braki = 50
+braki_low = 0.8 * braki
+while (sum(is.na(wynik1[,1])) < braki_low) {
+  los = sample(1:liczba_obserwacji,1)
+  if (wynik[los,1] <= 50) {
+    wynik1[los,1] = NA
+  }
+}
+while (sum(is.na(wynik1[,1]))<braki) {
+  los = sample(1:liczba_obserwacji,1)
+  if (wynik[los,1] > 50) {
+    wynik1[los,1] = NA
+  }
+}
+
+brakwyniku = ifelse(is.na(wynik1$Punkty),1,0)
+zdalczynie = ifelse(wynik1$Ocena == "2","nie","tak")
+s <- summary(glm(brakwyniku ~ zdalczynie),family=binomial)
+s$coefficients[2,4]
+
+hd_impute = hotdeck(data = wynik1, variable = "Punkty")
+knn_impute = kNN(data = wynik1, variable = "Punkty")
+match_impute = matchImpute(data = wynik1, variable = "Punkty", match_var = "Ocena")
+
+hd_impute$Ocena = hd_impute$Punkty
+hd_impute$Ocena <- recode(hd_impute$Ocena, "0:50 = '2'; 51:60 = '3'; 61:70 = '3+';71:80 = '4'; 81:90 = '4+'; else = 5")
+hd_impute$Ocena = as.factor(hd_impute$Ocena)
+hdOceny = table(hd_impute$Ocena)
+hdSrednia = mean(hd_impute$Punkty)
+hdMediana = median(hd_impute$Punkty)
+hd1kw = quantile(hd_impute$Punkty)[2]
+hd3kw = quantile(hd_impute$Punkty)[4]
+hdstatPunkty = rbind(hdSrednia,hdMediana,hd1kw,hd3kw)
+
+knn_impute$Ocena = knn_impute$Punkty
+knn_impute$Ocena <- recode(knn_impute$Ocena, "0:50 = '2'; 51:60 = '3'; 61:70 = '3+';71:80 = '4'; 81:90 = '4+'; else = 5")
+knn_impute$Ocena = as.factor(knn_impute$Ocena)
+knnOceny = table(knn_impute$Ocena)
+knnSrednia = mean(knn_impute$Punkty)
+knnMediana = median(knn_impute$Punkty)
+knn1kw = quantile(knn_impute$Punkty)[2]
+knn3kw = quantile(knn_impute$Punkty)[4]
+knnstatPunkty = rbind(knnSrednia,knnMediana,knn1kw,knn3kw)
+
+match_impute$Ocena = match_impute$Punkty
+match_impute$Ocena <- recode(match_impute$Ocena, "0:50 = '2'; 51:60 = '3'; 61:70 = '3+';71:80 = '4'; 81:90 = '4+'; else = 5")
+match_impute$Ocena = as.factor(match_impute$Ocena)
+matchOceny = table(match_impute$Ocena)
+matchSrednia = mean(match_impute$Punkty)
+matchMediana = median(match_impute$Punkty)
+match1kw = quantile(match_impute$Punkty)[2]
+match3kw = quantile(match_impute$Punkty)[4]
+matchstatPunkty = rbind(matchSrednia,matchMediana,match1kw,match3kw)
+
+Oceny = table(wynik1$Ocena)
+Srednia = mean(wynik$Punkty)
+Mediana = median(wynik$Punkty)
+n1kw = quantile(wynik$Punkty)[2]
+n3kw = quantile(wynik$Punkty)[4]
+statPunkty = rbind(Srednia,Mediana,n1kw,n3kw)
+zestawienieOcen = rbind(Oceny,hdOceny,knnOceny,matchOceny)
+zestawienieStat = rbind(statPunkty, hdstatPunkty,knnstatPunkty,matchstatPunkty)
+zestawienieOcen = data.frame(zestawienieOcen)
+rownames(zestawienieOcen) = c("Wyniki bazowe", "Imputacja Hot Deck", "Imputacja kNN", "Imputacja Match")
+colnames(zestawienieOcen) = c("2","3","3+","4","4+","5")
+zestawienieStat = matrix(zestawienieStat,nrow = 4, ncol = 4, byrow = TRUE)
+zestawienieStat = data.frame(zestawienieStat)
+rownames(zestawienieStat) = c("Wyniki bazowe", "Imputacja Hot Deck", "Imputacja kNN", "Imputacja Match")
+colnames(zestawienieStat) = c("Średnia","Mediana","Pierwszy kwartyl", "Trzeci kwartyl")
+zestawienieStat
+zestawienieOcen
